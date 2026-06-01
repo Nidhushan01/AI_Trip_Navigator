@@ -5,6 +5,135 @@ import { defaultFormState, parseInterests } from "./utils/form";
 
 const initialResult = null;
 
+function normalizeText(text) {
+  return text.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim();
+}
+
+function parseMarkdownBlocks(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  const blocks = [];
+  let paragraphLines = [];
+  let listItems = [];
+
+  const flushParagraph = () => {
+    if (!paragraphLines.length) {
+      return;
+    }
+
+    blocks.push({
+      type: "paragraph",
+      text: paragraphLines.join(" "),
+    });
+    paragraphLines = [];
+  };
+
+  const flushList = () => {
+    if (!listItems.length) {
+      return;
+    }
+
+    blocks.push({
+      type: "list",
+      items: [...listItems],
+    });
+    listItems = [];
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    if (/^-{3,}$/.test(line)) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "divider" });
+      return;
+    }
+
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      blocks.push({
+        type: "heading",
+        level: headingMatch[1].length,
+        text: headingMatch[2].trim(),
+      });
+      return;
+    }
+
+    const listMatch = line.match(/^[-*]\s+(.*)$/);
+    if (listMatch) {
+      flushParagraph();
+      listItems.push(listMatch[1].trim());
+      return;
+    }
+
+    const orderedListMatch = line.match(/^\d+\.\s+(.*)$/);
+    if (orderedListMatch) {
+      flushParagraph();
+      listItems.push(orderedListMatch[1].trim());
+      return;
+    }
+
+    flushList();
+    paragraphLines.push(line);
+  });
+
+  flushParagraph();
+  flushList();
+
+  return blocks;
+}
+
+function renderInlineMarkdown(text) {
+  return text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>;
+    }
+
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+}
+
+function getItineraryTitle(result) {
+  const headingMatch = result.markdown_itinerary.match(/^#\s+(.+)$/m);
+  return normalizeText(headingMatch?.[1] || result.destination_city);
+}
+
+function getSectionText(markdown, headingName) {
+  const lines = markdown.split(/\r?\n/);
+  const target = headingName.toLowerCase();
+  let capture = false;
+  const collected = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const headingMatch = line.match(/^#{2,6}\s+(.*)$/);
+
+    if (headingMatch) {
+      const currentHeading = normalizeText(headingMatch[1]).toLowerCase();
+      if (capture) {
+        break;
+      }
+
+      capture = currentHeading === target;
+      continue;
+    }
+
+    if (capture && line && !/^-{3,}$/.test(line)) {
+      collected.push(line);
+    }
+  }
+
+  return normalizeText(collected.join(" "));
+}
+
 function App() {
   const [form, setForm] = useState(defaultFormState);
   const [result, setResult] = useState(initialResult);
@@ -45,6 +174,13 @@ function App() {
       setIsSubmitting(false);
     }
   };
+
+  const itineraryTitle = result ? getItineraryTitle(result) : "";
+  const itinerarySummary = result
+    ? getSectionText(result.markdown_itinerary, "Summary") ||
+      normalizeText(result.summary)
+    : "";
+  const itineraryBlocks = result ? parseMarkdownBlocks(result.markdown_itinerary) : [];
 
   return (
     <div className="page-shell">
@@ -151,38 +287,77 @@ function App() {
 
           {!result ? (
             <div className="empty-state">
-              <p>Your itinerary will appear here once the backend responds.</p>
+              <span className="empty-state-kicker">Waiting for itinerary</span>
+              <h3>Generated plans will show up here in a cleaner travel brief.</h3>
+              <p>
+                Submit a trip request and this panel will render the itinerary as
+                readable sections instead of raw markdown.
+              </p>
               <small>
-                Tip: keep the backend running on `http://127.0.0.1:8000` or set
+                Keep the backend running on `http://127.0.0.1:8000` or set
                 `VITE_API_BASE_URL`.
               </small>
             </div>
           ) : (
             <div className="results-stack">
               <section className="result-card featured">
-                <p className="card-label">Summary</p>
-                <h3>{result.destination_city}</h3>
-                <p>{result.summary}</p>
+                <p className="card-label">Itinerary Overview</p>
+                <h3>{itineraryTitle}</h3>
+                <p>{itinerarySummary}</p>
                 <div className="meta-row">
-                  <span>{result.estimated_budget}</span>
+                  <span>{normalizeText(result.estimated_budget)}</span>
+                  <span>{result.destination_city}</span>
                 </div>
               </section>
 
               <section className="result-card">
-                <p className="card-label">Daily Plan</p>
-                <div className="daily-list">
-                  {result.daily_plan.map((day) => (
-                    <article key={`${day.day}-${day.title}`} className="daily-item">
-                      <h4>
-                        Day {day.day}: {day.title}
-                      </h4>
-                      <ul>
-                        {day.activities.map((activity, index) => (
-                          <li key={`${day.day}-${index}`}>{activity}</li>
-                        ))}
-                      </ul>
-                    </article>
-                  ))}
+                <p className="card-label">Formatted Itinerary</p>
+                <div className="markdown-rendered">
+                  {itineraryBlocks.map((block, index) => {
+                    if (block.type === "heading") {
+                      if (block.level === 1) {
+                        return (
+                          <h3 key={index} className="markdown-h1">
+                            {block.text}
+                          </h3>
+                        );
+                      }
+
+                      if (block.level === 2) {
+                        return (
+                          <h4 key={index} className="markdown-h2">
+                            {block.text}
+                          </h4>
+                        );
+                      }
+
+                      return (
+                        <h5 key={index} className="markdown-h3">
+                          {block.text}
+                        </h5>
+                      );
+                    }
+
+                    if (block.type === "list") {
+                      return (
+                        <ul key={index} className="markdown-list">
+                          {block.items.map((item, itemIndex) => (
+                            <li key={`${item}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+                          ))}
+                        </ul>
+                      );
+                    }
+
+                    if (block.type === "divider") {
+                      return <div key={index} className="markdown-divider" />;
+                    }
+
+                    return (
+                      <p key={index} className="markdown-paragraph">
+                        {renderInlineMarkdown(block.text)}
+                      </p>
+                    );
+                  })}
                 </div>
               </section>
 
@@ -197,7 +372,7 @@ function App() {
                 </article>
 
                 <article className="result-card">
-                  <p className="card-label">Agent Reports</p>
+                  <p className="card-label">Agent Notes</p>
                   <div className="agent-list">
                     <div>
                       <h4>{result.location_report.agent_name}</h4>
@@ -213,11 +388,6 @@ function App() {
                     </div>
                   </div>
                 </article>
-              </section>
-
-              <section className="result-card">
-                <p className="card-label">Markdown Itinerary</p>
-                <pre className="markdown-output">{result.markdown_itinerary}</pre>
               </section>
             </div>
           )}
