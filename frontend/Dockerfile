@@ -7,6 +7,8 @@ RUN npm install
 
 COPY frontend ./
 
-EXPOSE 5173
+RUN npm run build
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+EXPOSE 8080
+
+CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "8080"]
