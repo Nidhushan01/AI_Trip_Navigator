@@ -15,4 +15,8 @@ WORKDIR /app/backend
 
 EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Use PORT env var if provided by the host (Render sets $PORT).
+ENV PORT=8080
+
+# Use shell form so ${PORT} is expanded at runtime.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
