@@ -17,6 +17,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://localhost:5173",
         "ai-trip-navigator-pntcept8w-nidhushans-projects.vercel.app",
+        "https://ai-trip-navigator.vercel.app",
     ]
 
     model_config = SettingsConfigDict(
