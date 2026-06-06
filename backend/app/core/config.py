@@ -1,5 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
+import os
+import json
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,4 +28,23 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+
+    # Support setting CORS origins via an environment variable named
+    # `CORS_ORIGINS`. It can be provided as a JSON array string, e.g.
+    #   ["https://site.vercel.app","https://example.com"]
+    # or as a simple comma-separated string:
+    #   https://site.vercel.app,https://example.com
+    cors_env = os.getenv("CORS_ORIGINS")
+    if cors_env:
+        try:
+            parsed = json.loads(cors_env)
+            if isinstance(parsed, list):
+                settings.cors_origins = parsed
+            elif isinstance(parsed, str):
+                settings.cors_origins = [s.strip() for s in parsed.split(",") if s.strip()]
+        except Exception:
+            # Fallback to comma-split if JSON parsing fails
+            settings.cors_origins = [s.strip() for s in cors_env.split(",") if s.strip()]
+
+    return settings
