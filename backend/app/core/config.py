@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = [
         "http://127.0.0.1:5173",
         "http://localhost:5173",
+        "ai-trip-navigator-pntcept8w-nidhushans-projects.vercel.app",
     ]
 
     model_config = SettingsConfigDict(
